@@ -4,8 +4,6 @@ from BeautifulSoup import BeautifulSoup
 import urllib, urllib2, cookielib
 #エンコードなどの文字列処理用
 import re, unicodedata
-#XML処理用
-#from xml.etree.ElementTree import Element, SubElement, Comment, tostring
 #数値参照を文字参照に
 #from htmlentity2unicode import htmlentity2encode
 #スクレイピング処理
@@ -14,6 +12,10 @@ from ScrapeContents import brRemove, ScrapeMainHTML, ScrapeContents
 from ScrapeDatetime import ScrapeDatetime
 #DB追加用
 from db_add import add_dic
+#ログイン待ち用
+import time
+#エラー終了用
+import sys
 
 #GETリクエストを実行
 def GetRequest(uri):
@@ -57,34 +59,49 @@ def GetSessionID(srchtml):
 	return session_id
 
 #----------------------main-----------------------
-cj = cookielib.CookieJar()
 #root = Element('root')
+cj = cookielib.CookieJar()
 
-#ログインページの取得
-url = "http://portal.sa.dendai.ac.jp/up/faces/login/Com00505A.jsp"
-body = GetRequest(url)
+
+#ログインできるまでループ
+for i in range(0, 15):
+        #ログインページの取得
+        url = "http://portal.sa.dendai.ac.jp/up/faces/login/Com00505A.jsp"
+        body = GetRequest(url)
+        SessionID = GetSessionID(body)
+        print SessionID
+
+        #認証処理をしてトップページを取得
+        url = "https://portal.sa.dendai.ac.jp/up/faces/login/Com00505A.jsp"
+        #POSTパラメータ作成
+        params = {
+                'form1:htmlUserId':'[ID]',
+                        'form1:htmlPassword':'[PASSWORD]',
+                        'com.sun.faces.VIEW':SessionID,
+                        'form1:login.x':'0',
+                        'form1:login.y':'0',
+                        'form1':'form1'}
+        body = PostRequest(url,params)
+        soup = BeautifulSoup(body)
+        #ログイン後ページかチェック
+        q = soup.findAll('div', id="menubox")
+        if len(q) > 0:
+                print 'success to login :',
+                print i
+                break
+        time.sleep(0.5) #sleep(秒指定)
+        if i >= 14:
+                print 'fail to login'
+                sys.exit()
 SessionID = GetSessionID(body)
 print SessionID
-
-#認証処理をしてトップページを取得
-url = "https://portal.sa.dendai.ac.jp/up/faces/login/Com00505A.jsp"
-#POSTパラメータ作成
-params = {
-	'form1:htmlUserId':'[ID]',
-		'form1:htmlPassword':'[PASSWORD]',
-		'com.sun.faces.VIEW':SessionID,
-		'form1:login.x':'0',
-		'form1:login.y':'0',
-		'form1':'form1'}
-body = PostRequest(url,params)
-SessionID = GetSessionID(body)
-print SessionID
+#print body #debug
 
 #トップページの[全授業]ボタンを押す
 url = "https://portal.sa.dendai.ac.jp/up/faces/up/po/Poa00601A.jsp"
 #POSTパラメータ作成
 params = {
-	'form1:Poa00201A:htmlParentTable:2:htmlHeaderTbl:0:allJugyo.x':'',
+	'form1:Poa00201A:htmlParentTable:1:htmlHeaderTbl:0:allJugyo.x':'',
 	'com.sun.faces.VIEW':SessionID,
 	'form1':'form1'}
 body = PostRequest(url,params)
@@ -95,7 +112,8 @@ print SessionID
 url = "https://portal.sa.dendai.ac.jp/up/faces/up/po/Poa00601A.jsp"
 #POSTパラメータ作成
 params = {
-	'form1:Poa00201A:htmlParentTable:2:htmlDisplayOfAll:0:allInfoLinkCommand':'',
+        #'form1:Poa00201A:htmlParentTable:0:htmlDisplayOfAll:0:allInfoLinkCommand':'',
+	'form1:Poa00201A:htmlParentTable:1:htmlDisplayOfAll:0:allInfoLinkCommand':'',
 	'com.sun.faces.VIEW':SessionID,
 	'form1':'form1'}
 body = PostRequest(url,params)
@@ -103,14 +121,25 @@ SessionID = GetSessionID(body)
 print SessionID
 
 #項目数取得
+#print body #debug
 soup = BeautifulSoup(body)
 q = soup.findAll('span', id="form1:Poa00201A:htmlParentTable:htmlDetailTbl2:htmlListCount")
-info_count = int(q[0].contents[0].replace('&#20214;',""))
+#項目数取得できない場合、全?件から取得
+if len(q)<=0:
+        print 'fail to open show all'
+        q = soup.findAll('span', id="form1:Poa00201A:htmlParentTable:1:htmlDisplayOfAll:0:htmlCountCol21702")
+        info_count = int(q[0].contents[0].replace(u'全',"").replace(u'件',""))
+        isAll_show = 1
+else:
+        info_count = int(q[0].contents[0].replace('&#20214;',""))
+        isAll_show = 0
+print 'info_count :',
 print info_count
 
 #詳細ページ取得
 for i in range(info_count):
-	url="https://portal.sa.dendai.ac.jp/up/faces/up/po/pPoa0202A.jsp?fieldId=form1:Poa00201A:htmlParentTable:0:htmlDetailTbl2:"+str(i)+":linkEx2"
+        print 'Item', i, '--------------------'
+        url="https://portal.sa.dendai.ac.jp/up/faces/up/po/pPoa0202A.jsp?fieldId=form1:Poa00201A:htmlParentTable:"+ str(isAll_show) +":htmlDetailTbl2:"+str(i)+":linkEx2"
 	body2 = GetRequest(url)
 	body = unicodedata.normalize('NFKC', body2.decode('utf-8'))
 
